@@ -92,13 +92,11 @@ export default {
     },
     toggleAttributeShowing(newShowing) {
       // let newShowingArray = [...this.attributesShowing];
-      // console.log('checking', newShowingArray, 'for', newShowing)
       // if (newShowingArray.includes(newShowing)) {
       //   newShowingArray = newShowingArray.filter(i => i !== newShowing);
       // } else {
       //   newShowingArray.push(newShowing)
       // }
-      
       // this.attributesShowing = [newShowingArray]
       this.attributesShowing = [newShowing]
     },
@@ -128,7 +126,7 @@ export default {
   transition: opacity 120ms ease;
   image-rendering: pixelated;
   padding: 10px;
-  z-index: 1;
+  z-index: 2;
   overflow-y: scroll;
 }
 header {

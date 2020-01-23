@@ -17,7 +17,7 @@ export default class ShapeScanner {
 				}
 			});
 		}
-		// let cock = [
+		// let blarg = [
 		// 	[1,1,1,0,0,0],
 		// 	[1,1,1,0,0,0],
 		// 	[1,1,1,0,0,0],
@@ -25,8 +25,8 @@ export default class ShapeScanner {
 		// 	[0,0,0,0,1,0],
 		// 	[0,0,0,0,0,1],
 		// ]
-		// console.log('starting with matrix', cock.slice(0))
-		// const trans = this.evaluatePermutations([...cock], ['90deg', '180deg', '270deg', 'flipX', 'flipY'])
+		// console.log('starting with matrix', blarg.slice(0))
+		// const trans = this.evaluatePermutations([...blarg], ['90deg', '180deg', '270deg', 'flipX', 'flipY'])
 		// console.log(trans);
 		console.log("made net with nets", this.nets);
 	}	

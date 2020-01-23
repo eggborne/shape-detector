@@ -11,13 +11,30 @@ export default new Vuex.Store({
       height: 12
     },
     hotKeys: {
+      pencil: 'P',
+      move: 'M',
+      rectangle: 'R',
+      circle: 'C',
+      triangle: 'T',
       selectPencilTool: {
-        key: "d",
-        code: "keyD"
+        key: "p",
+        code: "keyP"
       },
       selectMoveTool: {
         key: "m",
         code: "keyM"
+      },
+      selectRectangle: {
+        key: "r",
+        code: "keyR"
+      },
+      selectCircle: {
+        key: "c",
+        code: "keyC"
+      },
+      selectTriangle: {
+        key: "t",
+        code: "keyT"
       },
       holdToSelectMoveTool: {
         key: " ",
@@ -29,19 +46,39 @@ export default new Vuex.Store({
       }
     },
     shapeColors: {
-      rectangle: "#007700",
-      circle: "#3030b6",
-      triangle: "#997700"
+      rectangle: "#4D82B8",
+      circle: "#9868B9",
+      triangle: "#76A797"
     },
     modelsLoaded: {
       rectangle: false,
       circle: false,
       triangle: false
     },
+    junctureSpots: {
+      rectangle: {
+        original: [ [0, 0], [0, 1], [1, 0], [1, 1], [0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5] ]
+      },
+      circle: {
+        original: [ [0.5, 0], [0.5, 1], [0, 0.5], [1, 0.5] ],
+      },
+      triangle: {
+        original: [ [0, 0], [-0.5, 1], [0.5, 1] ],
+        "90deg":  [ [1, -0.5], [0, 0], [1, 0.5] ],
+        "180deg":  [ [-0.5, -1], [0.5, -1], [0, 0] ],
+        "270deg":  [ [-1, -0.5], [-1, 0.5], [0, 0] ],
+        flipX:  [ [0, 0], [-0.5, 1], [0.5, 1] ],
+        flipY: [ [-0.5, -1], [0.5, -1], [0, 0] ]
+      }
+    },
+    selectedJunctures: [],
     gridMode: false,
     gridCellSize: 16,
     blocks: [],
+    junctures: [],
+    connectors: [],
     selectedBlock: undefined,
+    selectedBlocks: [],
     autoShapes: true,
     autoCloseShapes: true,
     showKnobs: true,
@@ -49,7 +86,7 @@ export default new Vuex.Store({
     previousTool: "pencil",
     currentTool: "pencil",
     drawMode: "frame",
-    shapeMode: "compose",
+    shapeMode: "test",
     blockBorderRadius: 6,
     baseFrameKnobSize: 12,
     baseFrameLineSize: 10,
@@ -88,7 +125,9 @@ export default new Vuex.Store({
         flipX: 0,
         flipY: 0
       },
-      circular: true
+      circular: true,
+      rectangular: true,
+      triangular: true
     },
     shapeSymmetries: {
       rectangle: ["90deg, flipX, flipY"],
@@ -144,7 +183,6 @@ export default new Vuex.Store({
       state.currentLikely = newCurrentLikely;
     },
     setCurrentPrediction(state, newCurrentPrediction) {
-      console.warn("setting pred to", newCurrentPrediction);
       if (!newCurrentPrediction) {
         newCurrentPrediction = {
           percentages: { rectangle: 0, circle: 0, triangle: 0 },
@@ -155,7 +193,9 @@ export default new Vuex.Store({
             flipX: 0,
             flipY: 0
           },
-          circular: true
+          circular: true,
+          rectangular: true,
+          triangular: true
         };
       }
       state.currentPrediction = newCurrentPrediction;
@@ -168,6 +208,10 @@ export default new Vuex.Store({
       if (newShapeMode === "label") {
         state.autoCloseShapes = false;
         state.autoShapes = false;
+      }
+      if (newShapeMode === "test") {
+        state.autoCloseShapes = true;
+        state.autoShapes = true;
       }
     },
     changeDefaultBlockSize(state, newSize) {
@@ -187,15 +231,16 @@ export default new Vuex.Store({
         state.selectedPatterns.push(patternIndex);
       } else {
         state.selectedPatterns = state.selectedPatterns.filter(
-          p => p !== patternIndex 
+          p => p !== patternIndex
         );
       }
     },
     setCurrentTool(state, newCurrentTool) {
       state.previousTool = state.currentTool;
       state.currentTool = newCurrentTool;
-      console.log("set to", state.currentTool);
-      console.log("pev set to", state.previousTool);
+    },
+    setCurrentToolOption(state, newCurrentToolOption) {
+      state.currentToolOption = newCurrentToolOption;
     },
     toggleAutoCloseShapes(state) {
       state.autoCloseShapes = !state.autoCloseShapes;
@@ -210,8 +255,39 @@ export default new Vuex.Store({
       state.frameKnobSize = state.baseFrameKnobSize * (1 / newScale);
       state.frameLineSize = state.baseFrameLineSize * (1 / newScale);
     },
-    setBlocks(state, newBlocks) {
-      state.blocks = newBlocks;
+    setElements(state, elementType, newElements = []) {
+      state[elementType] = newElements;
+    },
+    addElement(state, elementType, element) {
+      state[elementType].push(element);
+    },
+    removeElement(state, elementType, element) {
+      state[elementType].splice(state[elementType].indexOf(element), 1);
+      // if (!state[elementType]) {
+      //   state[elementType] = [];
+      // }
+    },
+    addJuncture(state, juncture) {
+      state.selectedJunctures.push(juncture);
+    },
+    removeJuncture(state, juncture) {
+      state.selectedJunctures.splice(state.selectedJunctures.indexOf(juncture), 1);
+    },
+    setJunctures(state, newJunctures) {
+      console.log('setting new junctures', newJunctures)
+      state.junctures = newJunctures;
+    },
+    setJunctureSpots(state, shapeType, newJunctures) {
+      state.junctureSpots[shapeType] = newJunctures;
+    },
+    setSelectedBlocks(state, newSelectedBlocks=[]) {
+      state.selectedBlocks = newSelectedBlocks;
+    },
+    addSelectedBlock(state, block) {
+      state.selectedBlocks.push(block);
+    },
+    removeSelectedBlock(state, block) {
+      state.selectedBlocks.splice(state.selectedBlocks.indexOf(block), 1);
     }
   },
   actions: {},

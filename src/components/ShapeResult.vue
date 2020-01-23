@@ -2,8 +2,11 @@
   <div 
     :id='`${shapeType}-result`'
     :class='[`shape-score-display`, $store.state.modelsLoaded[shapeType] ? `ready` : ``, $store.state.currentLikely === shapeType ? `highlighted` : ``]'
+    :style='{
+      textDecoration: ruledOut ? `line-through` : `none`
+    }'
   >
-    <div>{{ shapeType[0].toUpperCase() + shapeType.substr(1, shapeType.length )}}</div>        
+    <div>{{ shapeType[0].toUpperCase() + shapeType.substr(1, shapeType.length )}}</div>
     <div class='shape-details'>
       <span 
         :class='[
@@ -39,7 +42,8 @@ export default {
   },
   props: {
     shapeType: String,
-    bestPermutation: Object
+    bestPermutation: Object,
+    ruledOut: Boolean
   },
   methods: {
 

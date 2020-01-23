@@ -25,6 +25,7 @@ export default {
   --control-panel-width: 100vw;
   --control-panel-height: calc(var(--screen-height) * 0.2);
   --footer-height: calc(var(--screen-height) * 0.08);
+  --footer-bottom: var(--control-panel-height);
   /* set in main.js and on resize */
   --canvas-x: 0;
   --canvas-y: 0;
@@ -86,14 +87,7 @@ h3 {
   grid-template-columns: repeat(var(--model-array-size), 1fr);
   grid-template-rows: repeat(var(--model-array-size), 1fr);
   transition: opacity 210ms ease;
-  z-index: 4;
-}
-#mini-image-display {
-  z-index: -1;
-}
-#mini-image-display, #current-image-portrait {
-  box-sizing: border-box;
-  outline: calc(var(--model-image-size) / 9) solid white;
+  z-index: 1;
 }
 #full-image-display {
   box-sizing: border-box;
@@ -106,28 +100,49 @@ h3 {
   width: 100%;
   height: 100%;
 }
-#mini-image-display, #mini-label-area, #current-image-portrait  {
+#mini-image-area {
   position: absolute;
-  right: unset;
+  height: var(--model-image-size);  
   transform-origin: bottom left;
-  top: unset;
   left: calc(var(--model-image-size) / 4.5);
-  bottom: calc(var(--model-image-size) / 4.5);
+  bottom: calc((var(--model-image-size) / 4.5));
+  display: flex;
+}
+#mini-image-display, #mini-image {
   width: var(--model-image-size);
   height: var(--model-image-size);  
-  transition: none;
+  box-sizing: border-box;
+  outline: calc(var(--model-image-size) / 9) solid white;
+  margin-right: 0.5rem;
+}
+#mini-image {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
 }
 #mini-label-area {
-  bottom: calc(var(--footer-height) + var(--control-panel-height));
-  left: calc(var(--model-image-size) * 2);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-evenly;
+  width: auto;
+  height: var(--model-image-size);  
+  display: grid;
+  align-items: center;
+  justify-items: end;
+  grid-template-columns: max-content auto;
+  grid-template-rows: 1fr 1fr;
+  grid-row-gap: 0.5rem;
+  grid-column-gap: 0.5rem;
   padding: 0.5rem 0.5rem;
   box-sizing: border-box;
-  background: violet;
   pointer-events: all !important;
-  display: none;
+  font-size: 0.8rem;
+  align-self: stretch;
+  outline: calc(var(--model-image-size) / 9) solid white;
+
+  /* display: none; */
+}
+#mini-label-area > div:nth-child(2n) {
+  text-align: left;
+  justify-self: start;
 }
 .label-button.mini.control-button {
   min-width: unset;
@@ -211,42 +226,7 @@ h3 {
   min-height: var(--screen-height);
   display: grid;
   grid-template-rows: 1fr var(--control-panel-height) var(--footer-height);
-}
-#control-panel {  
-  box-sizing: border-box;
-  grid-row-start: 2;
-  grid-template-rows: 0.5fr 0.5fr;
-  grid-template-columns: 0.33fr 0.34fr 0.33fr;
-  padding: 0.5rem;
-  width: var(--control-panel-width);
-  height: var(--control-panel-height);
-  bottom: var(--footer-height);
-}
-#control-panel, #footer {
-  position: fixed;
-  left: 0;
-}
-#clear-button {
-  grid-column-start: 3;
-}
-#draw-mode-button {
-  grid-column-end: span 2;
-  background: rgb(65, 65, 99);
-}
-/* #northeast-control-button {
-
-} */
-#footer {
-  box-sizing: border-box;
-  width: var(--control-panel-width);
-  height: var(--footer-height);
-  display: flex;
-  align-items: center;
-  background: #C0C0C0;
-  color: #ddd;
-  font-size: 0.8rem;
-  bottom: 0;
-  padding: calc(var(--footer-height) * 0.1);
+  background-color: transparent;
 }
 .loading-display {
   position: absolute;
@@ -304,7 +284,7 @@ h3 {
     --control-panel-height: var(--screen-height);
     --training-history-item-size: calc(var(--model-image-size) * 2);
     --footer-height: 2.5rem;
-
+    --footer-bottom: 0;
     --canvas-x: 0;
     --canvas-y: 0;
     --canvas-height: calc(var(--screen-height) - var(--footer-height));
@@ -324,27 +304,6 @@ h3 {
   #app {
     grid-template-rows: 1fr var(--footer-height);
     grid-template-columns: var(--control-panel-width) 1fr;
-  }  
-  #control-panel {
-    grid-row-start: 1;
-    grid-column-start: 1;
-    grid-template-rows: unset;
-    grid-auto-rows: var(--button-height);
-    grid-template-columns: 1fr;
-    padding: 1rem;
-    width: var(--control-panel-width);
-    height: 100%;
-    top: 0;
-  }
-  #control-panel button.control-button {
-    padding: 1rem;
-  }
-  #clear-button {
-    grid-column-start: unset;
-  }
-  #footer {
-    box-sizing: border-box;
-    width: 100vw;
   }
 }
 </style>

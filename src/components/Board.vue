@@ -1,20 +1,27 @@
 <template>
-  <div :class='[!$store.state.modalShowing ? $store.state.currentTool : ``]' id='block-board' class="board">
+  <div 
+    :class='[
+      !$store.state.modalShowing ? $store.state.currentTool : ``,
+      $store.state.shapeMode
+    ]' 
+    id='block-board' 
+    class="board"
+  >
     <div id='board-background'
       :style='{
         backgroundSize: `calc(${$store.state.gridCellSize * boardScale}px)`,
         backgroundPosition: `${offset.x}px ${offset.y}px`,
         imageRendering: boardScale > 2 ? `pixelated` : ``,
-        opacity: this.$store.state.gridMode ? 0.5 : 0.15
+        opacity: this.$store.state.gridMode ? 0.5 : $store.state.shapeMode === `compose` ? 0.15 : 0.25
       }'
     ></div>
-    <div class='ai-status-label' :class='[`board-label`, AILoaded ? `highlighted` : ``]'>{{
+    <div v-show='$store.state.shapeMode !== `compose`' class='ai-status-label' :class='[`board-label`, AILoaded ? `highlighted` : ``]'>{{
       `Neural Network ${AILoaded ? 'ready' : 'loading...'}`
     }}</div>
-    <div v-show='$store.state.showDetectionStats' class='board-label ai-prediction-label'>
-      <ShapeResult :shapeType='`rectangle`' :bestPermutation='bestPermutation' />
-      <ShapeResult :shapeType='`circle`' :bestPermutation='bestPermutation' />
-      <ShapeResult :shapeType='`triangle`' :bestPermutation='bestPermutation' />    
+    <div v-if='$store.state.shapeMode === `test` && $store.state.showDetectionStats' class='board-label ai-prediction-label'>
+      <ShapeResult :shapeType='`rectangle`' :bestPermutation='bestPermutation' :ruledOut='!$store.state.currentPrediction.rectangular'/>
+      <ShapeResult :shapeType='`circle`' :bestPermutation='bestPermutation' :ruledOut='!$store.state.currentPrediction.circular'/>
+      <ShapeResult :shapeType='`triangle`' :bestPermutation='bestPermutation' :ruledOut='!$store.state.currentPrediction.triangular'/>    
     </div>
     <div 
     :class='[
@@ -25,24 +32,39 @@
       `${this.DBMessage}`
     }}</div>
     <ControlPanel 
+      :blockAmount='blocks.length'
       :onClickNewBlock='handleClickNewBlock' 
       :toggleTrainingHistory='toggleTrainingHistory'
       :trainAI='trainAI'
       :scanHistory='scanHistory'
       :onClickClearAll='handleClickClearAll'
-      :onClickDeleteSelected='handleClickDeleteSelected'
+      :onClickDeleteSelectedPatterns='handleClickDeleteSelectedPatterns'
       :labelBlock='labelBlock'
       :editBlock='editBlock'
+      :handleChangeMode='handleChangeMode'
+      :deleteSelectedBlock='deleteSelectedBlock'
     />    
     <TrainingHistoryScreen
       v-if='$store.state.modalShowing === `trainingHistory`'
     />
-    <div id='mini-image-display'></div>
-    <div id='current-image-portrait'>
-      <img :src='$store.state.gridImage' />
+    <div v-show='$store.state.shapeMode !== `compose`' :class='[$store.state.shapeMode]' id='mini-image-area'>
+      <img v-show='$store.state.currentPrediction.imageUrl' id='mini-image' :src='$store.state.currentPrediction.imageUrl' />
+      <div id='mini-image-display'></div>
+      <div v-if='$store.state.shapeMode === `test`' id='mini-label-area'>
+        <div>Sharpest angle: </div>
+        <div>{{ $store.state.currentPrediction.rectangular.sharpestAngle || 0 }}</div>
+        <!-- <div>Sharp angles: {{ $store.state.currentPrediction.rectangular.numberOfSharpAngles }}</div> -->
+        <div>Roundness: </div>
+        <div>{{ 100 - $store.state.currentPrediction.circular.totalDiffPercent || 0 }}%</div>
+        <!-- <div>Sharp angles: {{ $store.state.currentPrediction.circular.largestDiffPercent }}</div> -->
+      </div>
     </div>
+    <div v-if='$store.state.shapeMode === `compose`' :class='[$store.state.shapeMode]' id='mini-map'>
+
+    </div>
+    
     <div v-if='$store.state.selectedBlock' :class='$store.state.miniModalShowing === `labelShape` ? `` : `obscured`' id='full-image-display'>
-      <img :src='$store.state.selectedBlock.imageUrl' />
+      <img :src='$store.state.gridImage' />
     </div>
     <footer :class='$store.state.miniModalShowing ===`labelShape` ? `` : `obscured`' id='full-image-header'>
       What is this?
@@ -59,6 +81,7 @@
     <!-- </div> -->
     <ToolPanel 
       :handleClickToolButton='handleClickToolButton'
+      :handleClickToolOption='handleClickToolOption'
     />
     <!-- <canvas :width='800' :height='200' id='board-canvas'></canvas> -->
   </div>
@@ -138,16 +161,23 @@ export default {
     this.boardCanvas.touchManager.on('pointerdown', this.handleWindowTouchDown);
     this.boardCanvas.touchManager.on('pointermove', this.handleWindowTouchMove);
     this.boardCanvas.touchManager.on('pointerup', this.handleWindowTouchUp);
-    this.boardCanvas.viewport.on("zoomed", e => {
+    this.boardCanvas.viewport.on('zoomed', e => {
       if (this.boardCanvas.viewport.scaled < this.zoomLimit.min) {
         this.boardCanvas.viewport.setZoom(this.zoomLimit.min);
       } else if (this.boardCanvas.viewport.scaled > this.zoomLimit.max) {
         this.boardCanvas.viewport.setZoom(this.zoomLimit.max);
       }
       this.boardScale = e.viewport.scale.x;
-      this.$store.commit("scaleFrameSize", e.viewport.scale.x);     
+      this.$store.commit('scaleFrameSize', e.viewport.scale.x);
+      console.log('we is', this.$store.state.junctures)
+      this.$store.state.junctures.map(junct => {
+        console.log('on junct', junct.width, junct.height)
+        junct.width = (this.$store.state.frameKnobSize * 1.5);
+        junct.height = (this.$store.state.frameKnobSize * 1.5);
+        console.log('now', junct.width, junct.height)
+      })
     });
-    this.boardCanvas.viewport.on("moved", e => {
+    this.boardCanvas.viewport.on('moved', e => {
       let newOffset = {
         x: this.boardCanvas.viewport.x,
         y: this.boardCanvas.viewport.y
@@ -174,20 +204,37 @@ export default {
         e.preventDefault();
       }
       if (isKey(e, hotKeys.holdToSelectMoveTool)) {
-        this.boardCanvas.viewport.threshold = 0;
-        if (this.$store.state.currentTool.indexOf('move-holding') === -1) {
-          this.$store.commit('setCurrentTool', 'move-holding')
+        if (this.$store.state.currentTool !== 'move') {
+          this.boardCanvas.viewport.threshold = 0;
+          if (this.$store.state.currentTool.indexOf('move-holding') === -1) {
+            this.$store.commit('setCurrentTool', 'move-holding')
+          }
         }
       }
       if (isKey(e, hotKeys.selectMoveTool)) {
         this.boardCanvas.viewport.threshold = 0;
         if (this.$store.state.currentTool !== 'move') {
-          this.$store.commit('setCurrentTool', 'move')
+          this.handleClickToolButton('move');
         }
       }
       if (isKey(e, hotKeys.selectPencilTool)) {
         if (this.$store.state.currentTool !== 'pencil') {
-          this.$store.commit('setCurrentTool', 'pencil')
+          this.handleClickToolButton('pencil');
+        }
+      }
+      if (isKey(e, hotKeys.selectRectangle)) {
+        if (this.$store.state.currentTool !== 'rectangle') {
+          this.handleClickToolButton('rectangle');
+        }
+      }
+      if (isKey(e, hotKeys.selectCircle)) {
+        if (this.$store.state.currentTool !== 'circle') {
+          this.handleClickToolButton('circle');
+        }
+      }
+      if (isKey(e, hotKeys.selectTriangle)) {
+        if (this.$store.state.currentTool !== 'triangle') {
+          this.handleClickToolButton('triangle');
         }
       }
       if (isKey(e, hotKeys.toggleGridMode)) {
@@ -196,7 +243,7 @@ export default {
     });
     window.addEventListener('keyup', (e) => {
       const hotKeys = this.$store.state.hotKeys;
-      if (isKey(e, hotKeys.holdToSelectMoveTool) && !this.boardCanvas.viewport.threshold) {
+      if (this.$store.state.currentTool !== 'move' && isKey(e, hotKeys.holdToSelectMoveTool) && !this.boardCanvas.viewport.threshold) {
         this.boardCanvas.viewport.threshold = 1000;
         this.$store.commit('setCurrentTool', this.$store.state.previousTool)
       };
@@ -228,7 +275,7 @@ export default {
       this.$store.commit('setMiniModalShowing', 'labelShape');
     },
     editBlock() {
-      console.warn('CLOCKED TO EDIT BLOCK!!')
+      console.warn('CLICKED TO EDIT BLOCK!!')
     },
     onClickZoom(direction, amount=0.1) {
       if (direction === 'out') {
@@ -240,6 +287,13 @@ export default {
       }
       let newScale = this.boardCanvas.stage.scale.x;
       this.boardScale = newScale;
+    },
+    handleChangeMode(e) {
+      console.log('e', e);
+      const newMode = e.target.innerText.toLowerCase();
+      console.log(newMode)
+      this.handleClickClearAll();
+      this.$store.commit(`changeShapeMode`, newMode);
     },
     async getPatterns() {
       // let newPatterns = {...this.$store.state.trainingPatterns};
@@ -254,15 +308,12 @@ export default {
       return gotPatterns;
     },
     async addNewTrainingPattern(attributeName, modelArray, feature, value) {
-      console.warn('addnewTraining got args', arguments)
       if (!this.$store.state.trainingPatterns.rectangle.length) {
         await this.getPatterns();
       }      
       let currentPatterns = [ ...this.$store.state.trainingPatterns.rectangle ];      
-      console.warn('got currentPatterns', currentPatterns)
       const originalGrid = [...modelArray];
       const ioObj = this.shapeScanner.condenseIOFromGridArray(originalGrid, feature, value);
-      console.log('ioObj', ioObj);
       if (ioObj.input) {
         let sent;
         let newPattern = {
@@ -281,7 +332,7 @@ export default {
         sent = await DB.saveTrainingPatterns(modelId, currentPatterns);
         this.DBMessage = 'Saved training pattern!';
       } else {
-        this.DBMessage = 'IO was bad';
+        this.DBMessage = 'I/O was bad';
       }
       this.deleteSelectedBlock();
       setTimeout(() => {
@@ -290,12 +341,17 @@ export default {
     },
     async deleteSelectedBlock() {
       this.boardCanvas.container.removeChild(this.$store.state.selectedBlock);
-      this.blocks.splice(this.blocks.indexOf(this.$store.state.selectedBlock), 1);
-      this.$store.commit('changeSelectedBlock', undefined)  
+      this.boardCanvas.container.removeChild(this.$store.state.selectedBlock.frame);
+      this.$store.commit('setDrawnShapeImage', undefined);
+      this.$store.commit('setGridModelArray');
+      this.$store.commit('setGridImage');
+      this.blocks = this.blocks.splice(this.blocks.indexOf(this.$store.state.selectedBlock), 1);
+      this.$store.commit('changeSelectedBlock', undefined);
+      this.$store.commit('setCurrentPrediction');
+      document.getElementById('mini-image-display').innerHTML = '';
     },
     async trainAI(e, attributeName=this.$store.state.currentAttribute) {
       // attributeName = 'circle';
-      console.log('training', attributeName);
       const currentPatterns = JSON.parse(JSON.stringify(this.$store.state.trainingPatterns));
       const preparedIoList = [];
       currentPatterns[attributeName].forEach(pat => {
@@ -308,29 +364,28 @@ export default {
         this.DBMessage = '';
       }, 1000);
       let modelSaved = await this.shapeScanner.saveModel(attributeName);
-      console.warn('SAVED?', modelSaved, trained);
     },
     handleClickClearAll() {
       this.boardCanvas.container.removeChildren();
-      this.blocks = [];
-      this.$store.commit('setBlocks', [])
-      this.cells = {
-        filled: [],
-        currentStroke: []
-      };
+      this.$store.commit('setElements', 'blocks');
+      this.$store.commit('setElements', 'connectors');
+      this.cells = { filled: [], currentStroke: [] };
       blockCreator.frameContainer = undefined;
-      this.$store.commit('setDrawnShapeImage', undefined);
       if (this.$store.state.selectedBlock) {
         this.$store.commit('changeSelectedBlock', undefined);
       }
+      this.$store.commit('setDrawnShapeImage', undefined);
+      this.$store.commit('setGridModelArray');
+      this.$store.commit('setGridImage');
+      document.getElementById('mini-image-display').innerHTML = '';
       this.$store.commit('setCurrentLikely');
       this.$store.commit('setCurrentPrediction');
+      this.blocks = [];
     },
-    async handleClickDeleteSelected() {
+    async handleClickDeleteSelectedPatterns() {
       const patternIds = this.$store.state.selectedPatterns;
       let currentPatterns = JSON.parse(JSON.stringify(this.$store.state.trainingPatterns));
       currentPatterns.rectangle = currentPatterns.rectangle.filter(p => !patternIds.includes(p.id));
-      console.log('changed to', currentPatterns)
       this.$store.commit('setTrainingPatterns', currentPatterns);
       this.DBMessage = 'Deleting...';
       let sent;
@@ -351,30 +406,25 @@ export default {
       
     },
     async toggleTrainingHistory () {
-      console.log('clicked to show history')
       this.$store.commit('setModalShowing', this.$store.state.modalShowing === 'trainingHistory' ? undefined : 'trainingHistory');
-      console.log('pats', this.$store.state.trainingPatterns.rectangle)
       if (!this.$store.state.trainingPatterns.rectangle.length) {
         const gotPatterns = await this.getPatterns();
         if (gotPatterns) {
-          console.warn('GOT PATTERNS >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
+          console.warn('GOT PATTERNS after toggle >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>', gotPatterns)
         }
       }
     },
     handleSpawnBlock(posX, posY, width, height) {
       let newBlock = blockCreator.spawnBlock(posX, posY, width, height, this.$store.state.blockBorderRadius);
       newBlock.imageUrl = this.$store.state.gridImage;
-      console.log('handleSpawnBlock set gimageUrl yo', newBlock.imageUrl)
       this.boardCanvas.container.addChild(newBlock);
       this.blocks.push(newBlock);
-      this.$store.commit('setBlocks', this.blocks)  
       return newBlock;
     },
     handleSpawnPoly(color) {
       let points = [];
       blockCreator.frameContainer.children.sort((b, a) => b.index - a.index).forEach((knob, k, arr) => {
         if (knob.type === 'frameKnob') {
-        // if (knob.index !== undefined) {
           let canvasX = Math.round(knob.x);
           let canvasY = Math.round(knob.y);
           points.push(canvasX, canvasY);
@@ -384,7 +434,6 @@ export default {
       newPoly.points = points;
       this.boardCanvas.container.addChild(newPoly);
       this.blocks.push(newPoly);
-      this.$store.commit('setBlocks', this.blocks)
       return newPoly;
     },
     handleSpawnCell(posX, posY) {
@@ -397,7 +446,6 @@ export default {
         // this.boardCanvas.container.addChild(newCell);
         this.cells.currentStroke.push(newCell);
         this.cells.filled.push(newCell)
-        console.warn("--- CELL ---", this.cells.currentStroke.length);
       }
     },
     handleSpawnFrameKnob (posX, posY, width, visible) {      
@@ -413,6 +461,9 @@ export default {
       if (blockCreator.frameContainer.children.length > 1) {
         let newConnector = blockCreator.spawnLine(posX, posY, lastPrinted.posX, lastPrinted.posY, this.$store.state.frameLineSize);
         lineAngle = newConnector.rotation;
+        // let lastAngle = blockCreator.frameContainer.children[blockCreator.frameContainer.children.length - 3].angle || 0;
+        // blockCreator.frameContainer.children[blockCreator.frameContainer.children.length - 1].angleChange = 
+        //   lineAngle - lastAngle;
         newConnector.index = newIndex;
       }
       this.$store.commit('setLastPrintedKnob', {printTime: Date.now(), posX: posX, posY: posY, angle: lineAngle});
@@ -430,26 +481,36 @@ export default {
       const newTouchId = e.data.identifier;
       const eventX = Math.round(e.data.originalEvent.clientX) || Math.round(e.data.originalEvent.changedTouches[0].clientX);
       const eventY = Math.round(e.data.originalEvent.clientY) || Math.round(e.data.originalEvent.changedTouches[0].clientY);
-      console.log('blocktouched?', this.blockTouched)
-      if (this.blockTouched) { 
-        return;
-      }
+      
       window.TOUCHES.push({
         id: newTouchId,
         startingX: eventX,
         startingY: eventY,
+        touchedObj: e.target,
+        currentlyOver: e.target,
         eventX,
         eventY
       });
       if (window.TOUCHES.length === 1) {
-        if (this.$store.state.currentTool === 'pencil' && this.$store.state.drawMode === 'frame') {          
+        if (!e.target.type && this.$store.state.currentTool === 'pencil' && this.$store.state.drawMode === 'frame') {          
           this.handlePencilDown(eventX, eventY);
         }
       } else {
         if (this.$store.state.currentTool === 'pencil') {
           this.handleLiftPencil(window.TOUCHES[0].id);
+          window.TOUCHES = [];
         }
       }
+      if (e.target.type) {     
+        if (e.target.type === 'block') {
+          this.handleTouchBlock(e.target);
+          return;
+        }
+        if (e.target.type === 'juncture') {
+          this.handleTouchJuncture(e.target);
+          return;
+        }
+      }      
     },
     async handleWindowTouchMove (e) {
       if (window.TOUCHES.length === 1) {
@@ -458,37 +519,67 @@ export default {
           const currentIndex = window.TOUCHES.findIndex(t => t.id === newTouchId);
           const currentTouch = window.TOUCHES[currentIndex];
           let eventX = Math.round(e.data.originalEvent.clientX) || Math.round(e.data.originalEvent.changedTouches[0].clientX);
-          let eventY = Math.round(e.data.originalEvent.clientY) || Math.round(e.data.originalEvent.changedTouches[0].clientY);
-          this.handleMovePencil(currentTouch, eventX, eventY)
+          let eventY = Math.round(e.data.originalEvent.clientY) || Math.round(e.data.originalEvent.changedTouches[0].clientY);          
           currentTouch.posX = eventX;
           currentTouch.posY = eventY;
+          if (window.TOUCHES[0].touchedObj && window.TOUCHES[0].touchedObj.type === 'juncture') {
+            if (e.target.type && e.target.type === 'juncture' && window.TOUCHES[0].currentlyOver && window.TOUCHES[0].currentlyOver.type !== 'juncture'
+            && e.target.owner !== window.TOUCHES[0].touchedObj.owner) {
+              this.handleMoveOntoJuncture(e.target);
+            } else if ((!e.target.type || e.target.type !== 'juncture') && 
+            window.TOUCHES[0].currentlyOver !== window.TOUCHES[0].touchedObj && window.TOUCHES[0].currentlyOver.type === 'juncture') {
+              this.handleMoveOffOfJuncture(window.TOUCHES[0].currentlyOver);              
+            }
+          } else {
+            this.handleMovePencil(currentTouch, eventX, eventY)
+          }
+          window.TOUCHES[0].currentlyOver = e.target;
+        } 
+        if (this.$store.state.currentTool === 'move') {
+          
         } 
       }
     },
     async handleWindowTouchUp (e) {
       const newTouchId = e.data.identifier;
       const currentIndex = window.TOUCHES.findIndex(t => t.id === newTouchId);
-      const currentTouch = window.TOUCHES[currentIndex];  
+      const currentTouch = window.TOUCHES[currentIndex];
+      let eventX = Math.round(e.data.originalEvent.clientX) || Math.round(e.data.originalEvent.changedTouches[0].clientX);
+      let eventY = Math.round(e.data.originalEvent.clientY) || Math.round(e.data.originalEvent.changedTouches[0].clientY);
       if (window.TOUCHES.filter(t => t.id === newTouchId).length) {
-        window.TOUCHES = window.TOUCHES.filter(t => t.id !== newTouchId);
         if (this.$store.state.currentTool === 'pencil') {
-          this.handleLiftPencil(newTouchId);
+          if (window.TOUCHES[0].touchedObj.type) {
+            if (window.TOUCHES[0].touchedObj.type === 'juncture') {
+              this.handleReleaseJuncture(window.TOUCHES[0].touchedObj);
+              let notSelected = this.blocks.filter(b => this.$store.state.selectedBlock !== b);
+              if (this.$store.state.shapeMode === 'compose') {
+                blockCreator.hideAllJunctures(notSelected);            
+              }
+            }
+            if (e.target.type) {
+              if (e.target.type === 'juncture') {
+                this.handleReleaseJuncture(e.target);
+              }
+            }
+          }
+          this.handleLiftPencil(currentTouch, eventX, eventY);
+          
         }
         if (this.$store.state.currentTool.indexOf('move') > -1) {
           this.handleLiftPanTool(newTouchId);
         }
+        window.TOUCHES = window.TOUCHES.filter(t => t.id !== newTouchId);
       }
       this.blockTouched = false;
     },
     handlePencilDown(eventX, eventY) {
-      console.error('PENCIL DOWN!')
       const worldEvent = this.boardCanvas.viewport.toWorld(eventX, eventY);
       eventX = worldEvent.x;
       eventY = worldEvent.y;
       this.handleSpawnFrameKnob(eventX, eventY, this.$store.state.frameKnobSize, (this.$store.state.showKnobs && !this.$store.state.gridMode));            
       this.$store.commit('setKnobPath');
       if (this.$store.state.selectedBlock) {
-        blockCreator.unHighlightBlock(this.$store.state.selectedBlock)
+        blockCreator.unHighlightBlock(this.$store.state.selectedBlock, this.$store.state.shapeMode === 'compose')
         this.$store.commit('changeSelectedBlock', undefined);
       }
       this.$store.commit('setCurrentLikely');
@@ -497,16 +588,18 @@ export default {
     handleMovePencil(receivedTouch, eventX, eventY, totalDistance) {
       const worldEvent = this.boardCanvas.viewport.toWorld(eventX, eventY);
       const worldCurrent = this.boardCanvas.viewport.toWorld(receivedTouch.posX, receivedTouch.posY);
-      const worldStarting = this.boardCanvas.viewport.toWorld(receivedTouch.startingX, receivedTouch.startingY);
-      
+      const worldStarting = this.boardCanvas.viewport.toWorld(receivedTouch.startingX, receivedTouch.startingY);  
       eventX = worldEvent.x;
       eventY = worldEvent.y;
       const currentTouch = {
         posX: worldCurrent.x,
         posY: worldCurrent.y,
         startingX: worldStarting.x,
-        startingY: worldStarting.y
+        startingY: worldStarting.y,
+        touchedObj: window.TOUCHES[0].touchedObj,
       };
+      window.TOUCHES[0].posX = currentTouch.posX;
+      window.TOUCHES[0].posY = currentTouch.posY;
       if (this.$store.state.drawMode === 'frame') {        
         const totalDistance = {
           x: Math.abs(currentTouch.startingX - eventX),
@@ -529,7 +622,6 @@ export default {
         const sincePrinted = Date.now() - lastPrinted.printTime;
         const timeOkay = sincePrinted >= this.$store.state.printInterval;
         if (timeOkay && shapeIncomplete) {
-          console.warn('timeOkay and shapeIncomplete! ....................................................................')
           // let movedX = Math.abs(lastPrintedWorld.x - eventX);
           // let movedY = Math.abs(lastPrintedWorld.y - eventY);
           let movedX = Math.abs(lastPrinted.posX - eventX);
@@ -540,9 +632,9 @@ export default {
           const angleDifference = Math.abs(lastAngle - (angleAway - Math.PI / 2));
           const angleChanged = angleDifference > degToRad(80);
           const actualLineSize = this.$store.state.frameLineSize;
-          const movedMin = ((totalDistance.x >= actualLineSize || totalDistance.y >= actualLineSize) 
+          const movedMin = (movedX >= minMovementDistance || movedY >= minMovementDistance) && ((totalDistance.x >= actualLineSize || totalDistance.y >= actualLineSize) 
           && (movedX >= actualLineSize || movedY >= actualLineSize));
-          const movedEnough = (angleChanged && movedMin) || 
+          const movedEnough = (movedMin) || 
           ((totalDistance.x >= minMovementDistance || totalDistance.y >= minMovementDistance) 
           && (movedX >= minMovementDistance || movedY >= minMovementDistance));
           let straightDistance = distanceFromABToXY(eventX, eventY, lastPrinted.posX, lastPrinted.posY);
@@ -552,24 +644,25 @@ export default {
           if ((timeOkay && movedEnough)) {           
             this.handleSpawnFrameKnob(eventX, eventY, this.$store.state.frameKnobSize, (this.$store.state.showKnobs && !this.$store.state.gridMode));            
             // create or update auto closing line
-            if (this.$store.state.autoCloseShapes && blockCreator.frameContainer.children.length >= 13) {
-              if (blockCreator.frameContainer.children.length === 13) {
-                blockCreator.closingLine = blockCreator.spawnLine(currentTouch.startingX, currentTouch.startingY, currentTouch.posX, currentTouch.posY, this.$store.state.frameLineSize);
+            if (this.$store.state.autoCloseShapes && blockCreator.frameContainer.children.length >= 5) {
+              if (blockCreator.frameContainer.children.length === 5) {
+                blockCreator.closingLine = blockCreator.spawnLine(currentTouch.startingX, currentTouch.startingY, currentTouch.posX, currentTouch.posY, this.$store.state.frameLineSize, true);
                 blockCreator.closingLine.type = 'auto-closing-line';
                 blockCreator.closingLine.alpha = 0.65;
                 blockCreator.frameContainer.addChild(blockCreator.closingLine);
               } else {
                 blockCreator.frameContainer.removeChild(blockCreator.closingLine);
-                blockCreator.closingLine = blockCreator.spawnLine(currentTouch.startingX, currentTouch.startingY, currentTouch.posX, currentTouch.posY, this.$store.state.frameLineSize);
+                blockCreator.closingLine = blockCreator.spawnLine(currentTouch.startingX, currentTouch.startingY, currentTouch.posX, currentTouch.posY, this.$store.state.frameLineSize, true);
                 blockCreator.closingLine.type = 'auto-closing-line';
                 blockCreator.closingLine.alpha = 0.65;
-              }                
+                blockCreator.frameContainer.addChild(blockCreator.closingLine);
+              }
             }
           }    
           if (frameOkay && inCompletionRange) {
             if (blockCreator.closingLine) {
-              blockCreator.frameContainer.removeChild(blockCreator.closingLine);
-              // blockCreator.closingLine = undefined;
+              // blockCreator.frameContainer.removeChild(blockCreator.closingLine);
+              blockCreator.closingLine = undefined;
             }
             let finishingLine = blockCreator.spawnLine(currentTouch.startingX, currentTouch.startingY, lastPrinted.posX, lastPrinted.posY, this.$store.state.frameLineSize);
             finishingLine.scale.y = finishingLine.originalScaleY;
@@ -623,81 +716,103 @@ export default {
         }
       }
     },
-    async handleLiftPencil() {
+    async handleLiftPencil(finalTouch) {      
       this.cells.currentStroke.length = 0;
-      let okayToClose = blockCreator.frameContainer.length >= 12;
+      let okayToClose = true;
+      if (blockCreator.frameContainer) {
+        okayToClose = blockCreator.frameContainer.children.length >= 12;
+      }
       if (this.$store.state.drawMode === 'frame') {
-        if (this.$store.state.autoCloseShapes) {
-          // const aiResult = this.evaluateNewShape();
-          // console.warn('handleLift aiResult?', aiResult)
-        }
-        console.log('clingline is', blockCreator.closingLine)
         if ((blockCreator.closingLine) || this.$store.state.completedShape) {
-          blockCreator.closingLine = undefined;
-          console.log('closingline exists')
           if (this.$store.state.shapeMode === 'label') {
-            // this.$store.commit('setMiniModalShowing', 'labelShape');
             // if (!this.$store.state.autoCloseShapes) {
               let newPoly = this.handleSpawnPoly(0x993333);
               newPoly.interactive = true;
-              newPoly.on('pointerdown', this.handleTouchBlock);
+              // newPoly.on('pointerdown', this.handleTouchBlock);
               if (this.$store.state.selectedBlock) {
-                blockCreator.unHighlightBlock(this.$store.state.selectedBlock)
+                blockCreator.unHighlightBlock(this.$store.state.selectedBlock, this.$store.state.shapeMode === 'compose')
                 this.$store.commit('changeSelectedBlock', undefined);
               }            
               blockCreator.createHighlight(newPoly, 8)
               this.$store.commit('changeSelectedBlock', newPoly);
               // const polyResult = await this.evaluateNewShape();
               let shapeBounds = this.getDrawnShapeBounds();
+              console.warn('calling recoreddraw', blockCreator.closingLine, this.$store.state.completedShape);
               const polyResult = await this.recordDrawnShape(shapeBounds.west.x, shapeBounds.north.y);
-              console.log('when after evalua', this.$store.state.gridImage)
-              newPoly.imageUrl = this.$store.state.gridImage;
+              newPoly.prediction = { imageUrl: polyResult };
+              this.$store.commit('setCurrentPrediction', newPoly.prediction)
+              this.blocks.push(newPoly);
+              // this.$store.commit('setCompletedShape', false)
               // newPoly.likely = polyResult.likely;
               // newPoly.prediction = {...polyResult };
               // newPoly.bestPermutation = { ...this.bestPermutation };
               // let polyColor = this.$store.state.shapeColors[polyResult.likely];
             // }
-          } else if (this.$store.state.shapeMode === 'compose') {
-            let polyColor = 0x772222;
-            let winner;
-            const aiResult = await this.evaluateNewShape();
-            if (this.$store.state.currentLikely) {
-              winner = this.$store.state.currentLikely
-              polyColor = this.$store.state.shapeColors[winner];
-            }
-            if (this.$store.state.autoShapes) {
-              let autoBlock;
-              if (this.$store.state.gridMode) {             
-                let closestNode = this.closestGridNode({
-                  x: blockCreator.shapeBounds.x,
-                  y: blockCreator.shapeBounds.y
-                }, 'down');
-                blockCreator.shapeBounds.x = closestNode.x;
-                blockCreator.shapeBounds.y = closestNode.y;
-                blockCreator.shapeBounds.width += this.$store.state.gridCellSize - (blockCreator.shapeBounds.width % this.$store.state.gridCellSize);
-                blockCreator.shapeBounds.height += this.$store.state.gridCellSize - (blockCreator.shapeBounds.height % this.$store.state.gridCellSize);
-                
-                let extraWidth = blockCreator.shapeBounds.width % this.$store.state.gridCellSize;
-                let extraHeight = blockCreator.shapeBounds.height % this.$store.state.gridCellSize;      
-                blockCreator.shapeBounds.width += extraWidth;         
-                blockCreator.shapeBounds.height += extraHeight;         
-                console.warn('blockCreator.shapeBounds.x % this.$store.state.gridCellSize', blockCreator.shapeBounds.x % this.$store.state.gridCellSize)
-                console.warn('blockCreator.shapeBounds.y % this.$store.state.gridCellSize', blockCreator.shapeBounds.y % this.$store.state.gridCellSize)
-                console.warn('blockCreator.shapeBounds.width % this.$store.state.gridCellSize', blockCreator.shapeBounds.width % this.$store.state.gridCellSize)
-                console.warn('blockCreator.shapeBounds.height % this.$store.state.gridCellSize', blockCreator.shapeBounds.height % this.$store.state.gridCellSize)
+            blockCreator.closingLine = undefined;
+          } else if (this.$store.state.shapeMode === 'test' || this.$store.state.shapeMode === 'compose') {
+            let isLine = this.isLine();
+            if (isLine && okayToClose) {
+              // blockCreator.closingLine.alpha = 1;
+              // blockCreator.closingLine.tint = 0x0000ff;
+              // console.log('finalTouch', finalTouch);
+              // let newConnectingLine = blockCreator.spawnLine(
+              //   finalTouch.posX, finalTouch.posY, 
+              //   finalTouch.startingX, finalTouch.startingY, 
+              //   this.$store.state.frameLineSize * 1.5
+              // );
+              const screenFinal = this.boardCanvas.viewport.toWorld(finalTouch.posX, finalTouch.posY);
+              const screenOrigin = this.boardCanvas.viewport.toWorld(finalTouch.startingX, finalTouch.startingY);
+              let connectorWidth = (this.$store.state.frameLineSize * 1.5) * this.boardScale
+              let newConnectingLine = blockCreator.spawnLine(
+                screenFinal.x, screenFinal.y, 
+                screenOrigin.x, screenOrigin.y, 
+                connectorWidth
+              );
+              this.boardCanvas.container.addChild(newConnectingLine);
+              this.$store.commit('addElement', 'connectors', newConnectingLine);
+              blockCreator.closingLine = undefined;
+            } else if (okayToClose) {
+              this.boardCanvas.container.removeChild(blockCreator.closingLine);
+              blockCreator.closingLine = undefined;
+              let polyColor = 0x772222;
+              let winner;
+              const aiResult = await this.evaluateNewShape();
+              if (this.$store.state.currentLikely) {
+                winner = this.$store.state.currentLikely
+                polyColor = this.$store.state.shapeColors[winner];
               }
-              if (winner === 'rectangle') {
-                  autoBlock = blockCreator.spawnAutoRectangle(
-                  blockCreator.shapeBounds.x, 
-                  blockCreator.shapeBounds.y, 
-                  blockCreator.shapeBounds.width, 
-                  blockCreator.shapeBounds.height, 
-                  polyColor,
-                  this.$store.state.blockBorderRadius
-                );
-              }
-              if (winner === 'triangle') {
-                  let permutation = aiResult.permutation;
+              if (this.$store.state.autoShapes) {
+                let autoBlock;
+                let permutation = aiResult.permutation
+                if (this.$store.state.gridMode) {             
+                  let closestNode = this.closestGridNode({
+                    x: blockCreator.shapeBounds.x,
+                    y: blockCreator.shapeBounds.y
+                  }, 'down');
+                  blockCreator.shapeBounds.x = closestNode.x;
+                  blockCreator.shapeBounds.y = closestNode.y;
+                  blockCreator.shapeBounds.width += this.$store.state.gridCellSize - (blockCreator.shapeBounds.width % this.$store.state.gridCellSize);
+                  blockCreator.shapeBounds.height += this.$store.state.gridCellSize - (blockCreator.shapeBounds.height % this.$store.state.gridCellSize);
+                  
+                  let extraWidth = blockCreator.shapeBounds.width % this.$store.state.gridCellSize;
+                  let extraHeight = blockCreator.shapeBounds.height % this.$store.state.gridCellSize;      
+                  blockCreator.shapeBounds.width += extraWidth;         
+                  blockCreator.shapeBounds.height += extraHeight;                           
+                }
+                if (winner === 'rectangle') {
+                  permutation = 'original';
+                  autoBlock = blockCreator.spawnAutoBlock(
+                    'rectangle', {
+                      posX: blockCreator.shapeBounds.x,
+                      posY: blockCreator.shapeBounds.y, 
+                      width: blockCreator.shapeBounds.width, 
+                      height: blockCreator.shapeBounds.height, 
+                      color: polyColor,
+                      radius: this.$store.state.blockBorderRadius
+                    }
+                  );                  
+                }
+                if (winner === 'triangle') {
                   let basePos1;
                   let basePos2;
                   let tipPoint;
@@ -782,74 +897,105 @@ export default {
                       y: halfwayY
                     }
                   }
-                  autoBlock = blockCreator.spawnAutoTriangle(
-                  basePos1,
-                  tipPoint,
-                  basePos2,
-                  polyColor
-                );
-              }
-              if (winner === 'circle') {
-                let circleRadius = (blockCreator.shapeBounds.width / 2);
-                if (this.$store.state.gridMode) {
-                  circleRadius += circleRadius % this.$store.state.gridCellSize;
+                  autoBlock = blockCreator.spawnAutoBlock(
+                    'triangle', {
+                      posX: basePos1,
+                      posY: tipPoint,
+                      posZ: basePos2,
+                      color: polyColor
+                    }
+                  );                  
                 }
-                autoBlock = blockCreator.spawnAutoCircle(
-                  blockCreator.shapeBounds.x + circleRadius, 
-                  blockCreator.shapeBounds.y + circleRadius, 
-                  circleRadius, 
-                  polyColor
-                );
-              }
-              if (autoBlock) {
-                console.log('AUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTSAUTOBLOCK EXISTS')
-                autoBlock.interactive = true;
-                autoBlock.on('pointerdown', this.handleTouchBlock);
-                autoBlock.likely = winner;
-                autoBlock.prediction = {...this.$store.state.currentPrediction};
-                autoBlock.bestPermutation = { ...this.bestPermutation };
-                autoBlock.imageUrl = this.$store.state.gridImage;   
-                console.error('highlighting block!') 
-                blockCreator.createHighlight(autoBlock, 8);        
-                console.log('autoBlock got imageUrl', autoBlock.imageUrl)
-
-                if (this.$store.state.selectedBlock) {
-                  blockCreator.unHighlightBlock(this.$store.state.selectedBlock)
+                if (winner === 'circle') {
+                  permutation = 'original';
+                  let circleRadius = (blockCreator.shapeBounds.width / 2);
+                  if (this.$store.state.gridMode) {
+                    circleRadius += circleRadius % this.$store.state.gridCellSize;
+                  }
+                  autoBlock = blockCreator.spawnAutoBlock(
+                    'circle', {
+                      posX: blockCreator.shapeBounds.x, 
+                      posY: blockCreator.shapeBounds.y, 
+                      radius: circleRadius, 
+                      color: polyColor
+                    }
+                  );
                 }
-                this.$store.commit('changeSelectedBlock', autoBlock);
-                this.blocks.push(autoBlock)
-                this.$store.commit('setBlocks', this.blocks)
-                this.boardCanvas.container.addChild(autoBlock);
+                if (autoBlock) {
+                  let spots = this.$store.state.junctureSpots[autoBlock.shape][permutation];
+                  if (this.$store.state.shapeMode === 'compose') {
+                    let junctures = blockCreator.spawnJunctures(autoBlock, spots, (this.$store.state.frameKnobSize * 1.5), '#0000ff');
+                    this.$store.commit('setJunctures', [...this.$store.state.junctures, ...junctures])
+                  }
+                  autoBlock.interactive = true;
+                  // autoBlock.on('pointerdown', this.handleTouchBlock);
+                  autoBlock.likely = winner;
+                  autoBlock.prediction = {...this.$store.state.currentPrediction};
+                  autoBlock.bestPermutation = { ...this.bestPermutation };
+                  autoBlock.imageUrl = this.$store.state.gridImage;   
+                  blockCreator.createHighlight(autoBlock, 8);          
+                  if (this.$store.state.selectedBlock) {
+                    blockCreator.unHighlightBlock(this.$store.state.selectedBlock, this.$store.state.shapeMode === 'compose')
+                  }
+                  this.blocks.push(autoBlock);                  
+                  this.$store.commit('changeSelectedBlock', autoBlock);
+                  autoBlock.frame = blockCreator.frameContainer;
+                  this.boardCanvas.container.addChild(autoBlock);
+                }
+              } else {
+                let freehandPoly = this.handleSpawnPoly(0x993333);
+                freehandPoly.interactive = true;
+                // freehandPoly.on('pointerdown', this.handleTouchBlock);
+                blockCreator.createHighlight(freehandPoly, 8);
+                this.$store.commit('changeSelectedBlock', freehandPoly);
+                // if (this.$store.state.autoShapes) {
+                  const polyResult = this.evaluateNewShape();
+                  freehandPoly.likely = this.$store.state.currentLikely;
+                  freehandPoly.prediction = { ...this.$store.state.currentPrediction };
+                  freehandPoly.bestPermutation = { ...this.bestPermutation };
+  
+                // }
               }
-            } else {
-              let freehandPoly = this.handleSpawnPoly(0x993333);
-              freehandPoly.interactive = true;
-              freehandPoly.on('pointerdown', this.handleTouchBlock);
-              blockCreator.createHighlight(freehandPoly, 8);
-              this.$store.commit('changeSelectedBlock', freehandPoly);
-              // if (this.$store.state.autoShapes) {
-                const polyResult = this.evaluateNewShape();
-                freehandPoly.likely = this.$store.state.currentLikely;
-                freehandPoly.prediction = { ...this.$store.state.currentPrediction };
-                freehandPoly.bestPermutation = { ...this.bestPermutation };
-
-              // }
             }
           }
         }
-        this.boardCanvas.container.removeChild(blockCreator.frameContainer);
+        if (blockCreator.frameContainer) {          
+          this.boardCanvas.container.removeChild(blockCreator.frameContainer);
+          if (this.$store.state.shapeMode === 'test') {
+            this.boardCanvas.container.addChild(blockCreator.frameContainer);
+            blockCreator.frameContainer.alpha = 0.2;
+            blockCreator.colorFrame(0x990000);
+          }
+        }
         requestIdleCallback(() => {
           if (blockCreator.frameContainer) {
-            console.error('removing frame')
             blockCreator.frameContainer = undefined;
-            this.$store.commit('setCompletedShape', false);
             this.$store.commit('setLastPrintedKnob');
           }
-        // this.$store.commit('setCurrentLikely', undefined);
-        // this.$store.commit('setCurrentPrediction', undefined);
+          this.$store.commit('setCompletedShape', false);
         });
       }
-      console.log('set blocktouched to', this.blockTouched)
+    },
+    isLine() {
+      const angleChange = this.getChangeInAngle();
+      let isLine = true;
+      let previousDistance;
+      let pathArr = blockCreator.frameContainer.children.filter(f => f.type.indexOf('line') > -1);
+      let origin = pathArr[1];
+      for (let i = 2; i < pathArr.length - 1; i += 1) {
+        let point = pathArr[i];
+        let currentDistance = distanceFromABToXY(point.x, point.y, origin.x, origin.y);
+        let currentAngleChange = this.getChangeInAngle(point.angle, origin.angle);
+        if (currentAngleChange > 30) {
+          return false;
+        }
+        if (currentDistance <= previousDistance) {
+          isLine = false;
+          break;
+        }
+        previousDistance = currentDistance;
+      }
+      return isLine;
     },
     closestGridNode(point, roundDirection) {
       let newPoint = {};
@@ -864,13 +1010,41 @@ export default {
       }
       return newPoint;
     },
+    getChangeInAngle(currentAngle, previousAngle) {
+      let changeInAngle = Math.round(currentAngle) - Math.round(previousAngle);
+      while (changeInAngle < -180) {
+        changeInAngle += 360;
+      }
+      while (changeInAngle > 180) {
+        changeInAngle -= 360;
+      }
+      return changeInAngle;
+    },
+    getPathAngleChanges() {
+      let knobChanges = [];
+      let lineSprites = blockCreator.frameContainer.children.filter(f => f.type.indexOf('line') > -1);
+      let previousAngle = lineSprites[1].angle;
+      for (let i = 2; i < lineSprites.length - 1; i += 1) {
+        const frameLine = lineSprites[i];
+        let currentAngle = frameLine.angle;
+        let changeInAngle = this.getChangeInAngle(currentAngle, previousAngle);
+        knobChanges[i] = changeInAngle;        
+        previousAngle = currentAngle;
+      }
+      return knobChanges;
+    },
     isCircular(cellGrid) {
-      console.log('circle checking grid', cellGrid)
+      const angleChanges = this.getPathAngleChanges();
+      let sorted = angleChanges.sort((a, b) => Math.abs(b) - Math.abs(a));
+      let highestAngleChange = Math.abs(sorted[0]);
+      if (highestAngleChange > 60) {
+        return false;
+      } else {
+      }
       let centerPoint = {
         x: blockCreator.shapeBounds.x + (blockCreator.shapeBounds.width / 2),
         y: blockCreator.shapeBounds.y + (blockCreator.shapeBounds.height / 2)
       }
-      console.log('centerPoint', centerPoint);
       let closest = 9999;
       let furthest = 0;
       let largestDifference = 0;
@@ -886,13 +1060,34 @@ export default {
       let largestDiffPercent = Math.round((largestDifference / furthest) * 100)
       let totalDifference = (furthest - closest);
       let totalDiffPercent = Math.round((totalDifference / furthest) * 100);
-      console.log('largestDiffPercent', largestDiffPercent);
-      console.log('totalDiffPercent', totalDiffPercent);
       let deviationsOkay = largestDiffPercent < 15;
       let totalDiffOkay = totalDiffPercent < 50;
-      console.log('deviationsOkay ok?', deviationsOkay);
-      console.log('totalDiffOkay ok?', totalDiffOkay);
-      return deviationsOkay && totalDiffOkay;
+      let possible = deviationsOkay && totalDiffOkay;
+      let result = { possible, totalDiffPercent, largestDiffPercent }
+      return result;
+    },
+    isRectangular(cellGrid) {
+      let possible = true;
+      const angleChanges = this.getPathAngleChanges();
+      let numberOfSharpAngles = angleChanges.filter(c => Math.abs(c) > 60).length;
+      let sorted = angleChanges.sort((a, b) => Math.abs(b) - Math.abs(a));
+      let sharpestAngle = Math.abs(sorted[0]);
+      if (sharpestAngle > 120) {
+        console.error('ANGLE CHANGE', sharpestAngle, 'TOO HIGH FOR RECT! ------------------------------------>');
+        possible = false;
+      } else if (sharpestAngle < 75) {
+        console.error('ANGLE CHANGE', sharpestAngle, 'TOO LOW FOR RECT! ------------------------------------>');
+      } else {
+        console.error('ANGLE CHANGE', sharpestAngle, 'OK FOR RECT! ------------------------------------>');
+      }
+      const drawnBounds = blockCreator.shapeBounds;
+      console.warn('-----------', drawnBounds);
+
+      let sizeAtEdge = {
+        'top': (drawnBounds.x + drawnBounds.width)
+      }
+      let result = { possible, numberOfSharpAngles, sharpestAngle }
+      return result;
     },
     handleClickScanShape(shape) {
       const polyResult = this.evaluateNewShape(shape);
@@ -906,8 +1101,7 @@ export default {
         width: furthestSegments.east.x - furthestSegments.west.x,
         height: furthestSegments.south.y - furthestSegments.north.y - (this.$store.state.frameKnobSize / 2)
       }
-      await this.recordDrawnShape(furthestSegments.west.x, furthestSegments.north.y);
-      console.warn('when after record drawnshape', this.$store.state.gridImage)
+      let imageUrl = await this.recordDrawnShape(furthestSegments.west.x, furthestSegments.north.y);
       const shapeBounds = {
         ...furthestSegments,
         x: furthestSegments.west.x,
@@ -917,28 +1111,37 @@ export default {
       }
       blockCreator.shapeBounds = shapeBounds;
       let gridCopy = JSON.parse(JSON.stringify(this.$store.state.gridModelArray));
-      console.warn('this.$store.state.gridModelArray', this.$store.state.gridModelArray)
       const flatGrid = this.$store.state.gridModelArray.flat();
+
+      const rectResult = this.isRectangular(gridCopy);
+      const circleResult = this.isCircular(gridCopy);
       
       const aiResult = {
         likely: this.shapeScanner.getLikely(flatGrid),
         permutation: 'original',
         percentages: this.shapeScanner.nets.rectangle.network.run(flatGrid),
         permutatedScores: {},
-        circular: this.isCircular(gridCopy)
+        rectangular: rectResult,
+        circular: circleResult,
+        triangular: true,
+        imageUrl: imageUrl
       }
-      console.time('evaluated all permutations in')
+
       const permResults = this.shapeScanner.evaluatePermutations(gridCopy, ['90deg', '180deg', '270deg', 'flipX', 'flipY']);
       let permsToCheck = permResults;
-      if (!aiResult.circular) {
+      if (!aiResult.circular.possible) {
         for (let perm in permsToCheck) {
           delete permsToCheck[perm].circle;
         }
         aiResult.percentages.circle = 0;
       }
-      console.log('checking', permsToCheck)
+      if (!aiResult.rectangular.possible) {
+        for (let perm in permsToCheck) {
+          delete permsToCheck[perm].rectangle;
+        }
+        aiResult.percentages.rectangle = 0;
+      }
       let likeliest = this.shapeScanner.getLikeliest(permsToCheck);
-      console.timeEnd('evaluated all permutations in')
       for (let result in permResults) {
         for (let score in permResults[result]) {
           permResults[result][score] = parseFloat((permResults[result][score] * 100).toFixed(1));
@@ -946,14 +1149,12 @@ export default {
       }
       this.bestPermutation = likeliest;
       if (likeliest.score > aiResult.percentages[aiResult.likely]) {
-        console.error(likeliest.shapeType, likeliest.permType, 'beat original', aiResult.likely, aiResult.percentages[aiResult.likely]);
         aiResult.likely = likeliest.shapeType;
         aiResult.permutation = likeliest.permType
       }
       aiResult.permutatedScores = permResults;
       this.$store.commit('setCurrentLikely', aiResult.likely);
       this.$store.commit('setCurrentPrediction', aiResult);
-      console.log('evaulate got', aiResult)
       return aiResult;                
     },
     handleMovePanTool(currentTouch, eventX, eventY, totalDistance) {
@@ -967,30 +1168,45 @@ export default {
       }
     },
     handleLiftPanTool() {
-      console.log('lifted pan tool.');
-      
+      console.log('lifted pan tool.');    
     },
-    handleTouchBlock(e) {
-      this.blockTouched = true;
-      let touchedBlock = e.target;
-      if (this.$store.state.selectedBlock !== touchedBlock) {
+    handleTouchBlock(touchedBlock) {
+      if (this.$store.state.currentTool.indexOf('move') === -1 && this.$store.state.selectedBlock !== touchedBlock) {
+        this.blockTouched = true;      
         if (this.$store.state.selectedBlock) {
-          blockCreator.unHighlightBlock(this.$store.state.selectedBlock)
+          blockCreator.unHighlightBlock(this.$store.state.selectedBlock, this.$store.state.shapeMode === 'compose')
         }
-        blockCreator.highlightBlock(touchedBlock, 8);
+        blockCreator.highlightBlock(touchedBlock, 8, this.$store.state.shapeMode === 'compose');
         this.$store.commit('changeSelectedBlock', touchedBlock);
-        console.warn('when touched', touchedBlock.imageUrl)
         if (this.$store.state.autoShapes || this.$store.state.shapeMode === 'label') {
           this.$store.commit('setCurrentPrediction', touchedBlock.prediction);
           this.$store.commit('setCurrentLikely', touchedBlock.likely);
           this.bestPermutation = touchedBlock.bestPermutation;
-          this.$store.commit('setGridImage', touchedBlock.imageUrl);
-        }
+          this.$store.commit('setGridImage', touchedBlock.prediction.imageUrl);
+        }        
       }
     },
+    handleMoveOntoJuncture(touchedJuncture) {
+      this.handleTouchJuncture(touchedJuncture);
+    },
+    handleMoveOffOfJuncture(touchedJuncture) {
+      this.handleReleaseJuncture(touchedJuncture);
+    },
+    handleTouchJuncture(touchedJuncture) {
+      touchedJuncture.alpha = 1;
+      touchedJuncture.scale = touchedJuncture.largeScale;
+      this.$store.commit('addJuncture', touchedJuncture);
+      if (this.$store.state.shapeMode === 'compose') {
+        blockCreator.showAllJunctures(this.blocks)
+      }
+    },
+    handleReleaseJuncture(touchedJuncture) {
+      touchedJuncture.alpha = 0.5;
+      touchedJuncture.scale = touchedJuncture.originalScale;
+      this.$store.commit('removeJuncture', touchedJuncture);
+    },
     async recordDrawnShape(drawnImageX, drawnImageY) {      
-      console.error('recording a drawn image at', ...arguments)
-
+      let imageData;
       // center the drawn shape in a square
       let longerDimension = blockCreator.frameContainer.width > blockCreator.frameContainer.height ? blockCreator.frameContainer.width : blockCreator.frameContainer.height;      
       longerDimension = Math.round(longerDimension);
@@ -1002,10 +1218,7 @@ export default {
         el.classList.remove('black');
         el.classList.remove('red');
       });
-      // document.getElementById('full-image-display').innerHTML = '';
-      // document.getElementById('mini-image-display').innerHTML = '';
 
-      // 
       const relativePathCoords = [];
       blockCreator.frameContainer.children.filter(piece => piece.type === 'frameKnob').forEach((piece, p) => {
         let pieceXSquare = Math.round((piece.x - (drawnImageX - squareOffsetX)) * scaleAdjustmentAmount);
@@ -1067,15 +1280,12 @@ export default {
       arrCopy = arrCopy.map(row => row = row.map(d => d = !d ? 0 : d));
       this.$store.commit('setGridModelArray', arrCopy);
 
-       if (this.$store.state.shapeMode === 'label') {
-        // document.getElementById('mini-image-display').innerHTML = '';
-        // document.getElementById('mini-image-display').classList.add('shrunken');
+       if (this.$store.state.shapeMode === 'label' || this.$store.state.shapeMode === 'test') {
         let canvas = await html2canvas(document.getElementById('mini-image-display'));
-        let imageData = canvas.toDataURL();
+        imageData = canvas.toDataURL();
+        document.getElementById('mini-image-display').innerHTML = '';
+        console.log('created imageData', imageData)
         this.$store.commit('setGridImage', imageData);
-        console.warn('when set gridimage to', imageData) 
-        // document.getElementById('mini-image-display').classList.remove('shrunken');
-        
       }
 
       // console.log('created arrCopy', arrCopy)
@@ -1087,9 +1297,8 @@ export default {
       // console.log('compressed', compressed);
       // let decompressed = LZUTF8.decompress(compressed)
       // console.log('decompressed', decompressed);
-
       this.$store.commit('setKnobPath', newRelativeCoords);
-      return;
+      return imageData;
     },    
     getDrawnShapeBounds() {
       const furthestSegments = {
@@ -1106,13 +1315,11 @@ export default {
       return furthestSegments;
     },
     scanHistory(e, attributeName=this.$store.state.currentAttribute) { 
-      console.log('scanning history for', attributeName, this.$store.state.trainingPatterns)     
       let newPatterns = {...this.$store.state.trainingPatterns};
       newPatterns[attributeName].forEach((pat, p) => {
         const decodedInput = this.shapeScanner.decodeCondensedArray(pat.ioObj.input);
         let result = this.shapeScanner.nets[attributeName].network.run(decodedInput);
         let likely = this.shapeScanner.getLikely(decodedInput);
-        console.log(p, 'result', result)
         let scanResult = {
           rectangle: parseFloat((result.rectangle * 100).toFixed(1)),
           circle: parseFloat((result.circle * 100).toFixed(1)),
@@ -1121,15 +1328,14 @@ export default {
         };
         pat.scanResult = scanResult;
       });
-      console.warn('scan setting patters', newPatterns)
       this.$store.commit('setTrainingPatterns', newPatterns)
     },
     handleClickToolButton(e) {
-      const newTool = e.target.id.split('-').slice(0, -1).join('-');
-      console.log('got new tool', newTool)
+      const newTool = e.target ? e.target.id.split('-').slice(0, -1).join('-') : e;
       if (newTool === 'move') {
         this.boardCanvas.viewport.threshold = 0;
       } else if (!this.boardCanvas.viewport.threshold) {
+        console.error('seeting threesh to 1000!')
         this.boardCanvas.viewport.threshold = 1000;
       }
       if (newTool === 'grid') {
@@ -1139,8 +1345,15 @@ export default {
       } else if (newTool === 'auto-close') {
         this.$store.commit('toggleAutoCloseShapes');
       } else {
+        console.log('settting new tool to', newTool)
         this.$store.commit('setCurrentTool', newTool);
       }
+    },
+    handleClickToolOption(e) {
+      const currentTool = e.target ? e.target.id.split('-')[0] : e[0];      
+      const newToolOption = e.target ? e.target.id.split('-')[1] : e[1];
+      console.log('clicked', `${currentTool}-${newToolOption}`);
+      this.$store.commit('setCurrentTool', `${currentTool}-${newToolOption}`);
     }
   }
 }
@@ -1150,7 +1363,6 @@ export default {
 .board {
   position: relative;
   grid-row-end: span 2;
-  /* max-height: var(--canvas-height); */
   width: var(--canvas-width);
   height: var(--canvas-height);
 }
@@ -1173,8 +1385,38 @@ export default {
   z-index: -1;
   transition: opacity 320ms ease; 
 }
+.board::before {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--model-image-size) + 1rem);
+  width: inherit;
+  height: 1.5rem;
+  text-align: left;
+  padding: 0 0.5rem;
+  color: red;
+  display: flex;
+  align-items: center;
+}
+.board.test {
+  background-color: rgba(158, 186, 255, 0.571);
+}
+.board.label {
+  background-color: rgba(223, 182, 189, 0.571);
+}
+.board.label::before {
+  content: 'TRAINING MODE';
+}
 .board.pencil {
   cursor: url(../assets/cursors/pencil.png) 0 32, auto;
+}
+.board.rectangle {
+  cursor: url(../assets/icons/rectanglebutton.png) 16 16, auto;
+}
+.board.circle {
+  cursor: url(../assets/icons/circlebutton.png) 16 16, auto;
+}
+.board.triangle {
+  cursor: url(../assets/icons/trianglebutton.png) 16 16, auto;
 }
 .board.move:not(:active), .board.move-holding:not(:active) {
   cursor: grab;
@@ -1238,6 +1480,11 @@ export default {
   background: pink;
 }
 @media (orientation: landscape) {
+  .board::before {
+    bottom: unset;
+    top: 1rem;
+    left: calc(var(--control-panel-width) + var(--model-image-size) + 4rem);
+  }
   .ai-status-label {
     /* top: 0.5rem; */
     left: var(--control-panel-width);
@@ -1248,6 +1495,10 @@ export default {
     right: 1vw;
     font-size: 1rem;
     width: auto;
+  }
+  #mini-image-area {
+    top: 2rem;
+    left: calc(var(--control-panel-width) + 2rem);
   }
 }
 
